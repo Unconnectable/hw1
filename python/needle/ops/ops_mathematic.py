@@ -302,17 +302,25 @@ class Summation(TensorOp):
     def gradient(self, out_grad, node):
         ### BEGIN YOUR SOLUTION
         # raise NotImplementedError()
-        initial_shape = node.inputs[0]
+        initial_shape = node.inputs[0].shape
         new_shape = list(initial_shape)
-        if self.axes is not None:
-            for axis in self.axes:
-                new_shape[axis] = 1
-        else:
-            new_shape = [1] * len(initial_shape)
-        # return broadcast_to(reshape(out_grad, tuple(new_shape)), initial_shape)
 
-        input_shape = node.inputs[0].shape
-        return broadcast_to(out_grad, input_shape)
+        if self.axes is not None:
+            axes = self.axes
+
+            if isinstance(axes, int):
+                axes = (axes,)
+
+            for ax in axes:
+                new_shape[ax] = 1
+
+        else:
+            # 如果axex是none 说明全是标量 把他全部变成 1
+            new_shape = [1] * len(initial_shape)
+        return broadcast_to(reshape(out_grad, tuple(new_shape)), initial_shape)
+
+        # input_shape = node.inputs[0].shape
+        # return broadcast_to(out_grad, input_shape)
         ### END YOUR SOLUTION
 
 
@@ -323,28 +331,65 @@ def summation(a, axes=None):
 class MatMul(TensorOp):
     def compute(self, a, b):
         ### BEGIN YOUR SOLUTION
-        # raise NotImplementedError()
         return a @ b
         ### END YOUR SOLUTION
 
     def gradient(self, out_grad, node):
         ### BEGIN YOUR SOLUTION
-        # raise NotImplementedError()
         lhs, rhs = node.inputs
 
+        # 1. 计算未考虑广播的梯度
+        # dL/dA = dL/dOut @ B.T
         grad_lhs = matmul(out_grad, transpose(rhs))
-
+        # dL/dB = A.T @ dL/dOut
         grad_rhs = matmul(transpose(lhs), out_grad)
 
-        if grad_lhs.shape != rhs.shape:
-            grad_lhs = summation(
-                grad_lhs, axes=tuple(range(len(grad_lhs.shape) - len(grad_rhs.shape)))
-            )
-        if grad_rhs.shape != lhs.shape:
-            grad_rhs = summation(
-                grad_rhs, axes=tuple(range(len(grad_rhs.shape) - len(grad_lhs.shape)))
-            )
-        return grad_lhs, grad_rhs
+        # 2. 处理广播机制 (Broadcasting)
+        # 如果 lhs 或 rhs 在 batch 维度上是 1，而 out_grad 的 batch 维度 > 1，
+        # 那么梯度需要在相应的 batch 维度上求和。
+
+        def reduce_broadcast(grad, original_shape):
+            """
+            将 grad 的形状缩减回 original_shape。
+            通过在对齐后多出来的维度或原始形状为1的维度上求和来实现。
+            """
+            current_shape = grad.shape
+            if current_shape == original_shape:
+                return grad
+
+            # 计算需要求和的轴
+            axes_to_sum = []
+            # 从后往前对齐维度
+            len_curr = len(current_shape)
+            len_orig = len(original_shape)
+
+            for i in range(len_curr):
+                # 对应的原始维度索引
+                orig_idx = i - (len_curr - len_orig)
+
+                # 情况1: 当前维度在原始形状中不存在（即前置广播维度）
+                if orig_idx < 0:
+                    axes_to_sum.append(i)
+                # 情况2: 当前维度在原始形状中存在，但原始形状是1，当前形状>1
+                elif original_shape[orig_idx] == 1 and current_shape[i] != 1:
+                    axes_to_sum.append(i)
+
+            if axes_to_sum:
+                # 对需要缩减的轴求和，并保持维度（keepdims=True 的逻辑通过 reshape 实现）
+                # 注意：我们的 summation 默认不 keepdims，所以求和后形状会变
+                # 为了安全，我们先求和，再 reshape 回原始形状
+                grad_reduced = summation(grad, axes=tuple(axes_to_sum))
+                # 由于 summation 去掉了维度，我们需要 reshape 回去
+                # 但要注意：如果 original_shape 是 (1, 3)，summation(axis=0) 得到 (3,)
+                # reshape((3,), (1, 3)) 是合法的
+                return reshape(grad_reduced, original_shape)
+            else:
+                return grad
+
+        grad_lhs_final = reduce_broadcast(grad_lhs, lhs.shape)
+        grad_rhs_final = reduce_broadcast(grad_rhs, rhs.shape)
+
+        return grad_lhs_final, grad_rhs_final
         ### END YOUR SOLUTION
 
 
