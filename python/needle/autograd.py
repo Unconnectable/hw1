@@ -1,4 +1,5 @@
 """Core data structures."""
+
 import needle
 from .backend_numpy import Device, cpu, all_devices
 from typing import List, Optional, NamedTuple, Tuple, Union, Dict
@@ -15,6 +16,7 @@ TENSOR_COUNTER = 0
 # as the backend for our computations, this line will change in later homeworks
 
 import numpy as array_api
+
 NDArray = numpy.ndarray
 
 
@@ -247,9 +249,9 @@ class Tensor(Value):
         tensor._init(
             None,
             [],
-            cached_data=data
-            if not isinstance(data, Tensor)
-            else data.realize_cached_data(),
+            cached_data=(
+                data if not isinstance(data, Tensor) else data.realize_cached_data()
+            ),
             requires_grad=requires_grad,
         )
         return tensor
@@ -362,8 +364,6 @@ class Tensor(Value):
     __rmul__ = __mul__
 
 
-
-
 def compute_gradient_of_variables(output_tensor, out_grad):
     """Take gradient of output node with respect to each node in node_list.
 
@@ -393,7 +393,22 @@ def find_topo_sort(node_list: List[Value]) -> List[Value]:
     sort.
     """
     ### BEGIN YOUR SOLUTION
-    raise NotImplementedError()
+    # raise NotImplementedError()
+    visited = set()
+    topo_order = []
+
+    def topo_sort_dfs(node):
+        if node in visited:
+            return
+        for input_node in node.inputs:
+            topo_sort_dfs(input_node)
+        visited.add(node)
+        topo_order.append(node)
+
+    for node in node_list:
+        topo_sort_dfs(node)
+
+    return topo_order
     ### END YOUR SOLUTION
 
 
