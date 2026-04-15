@@ -1,5 +1,7 @@
 """Core data structures."""
 
+from curses import noecho
+
 import needle
 from .backend_numpy import Device, cpu, all_devices
 from typing import List, Optional, NamedTuple, Tuple, Union, Dict
@@ -377,10 +379,36 @@ def compute_gradient_of_variables(output_tensor, out_grad):
     node_to_output_grads_list[output_tensor] = [out_grad]
 
     # Traverse graph in reverse topological order given the output_node that we are taking gradient wrt.
+    # 获取反向拓扑排序
     reverse_topo_order = list(reversed(find_topo_sort([output_tensor])))
 
     ### BEGIN YOUR SOLUTION
-    raise NotImplementedError()
+    # raise NotImplementedError()
+
+    for node in reverse_topo_order:
+        # 2. 计算当前节点的总梯度 (Adjoint)
+        # 把所有分叉回传的梯度加起来
+        total_grad = sum_node_list(node_to_output_grads_list[node])
+        node.grad = total_grad
+
+        if node.is_leaf():
+            continue
+
+        # 4. 调用该节点 Op 的 gradient 方法，把总梯度传给输入节点
+        # node.op.gradient 会返回一个列表（或元组），对应每个输入节点的梯度贡献
+        partial_grads = node.op.gradient(total_grad, node)
+
+        # 5. 将计算出的偏导数分发给各个输入节点
+        for i, input_node in enumerate(node.inputs):
+            if input_node not in node_to_output_grads_list:
+                node_to_output_grads_list[input_node] = []
+
+            grad_for_input = (
+                partial_grads[i]
+                if isinstance(partial_grads, (list, tuple))
+                else partial_grads
+            )
+            node_to_output_grads_list[input_node].append(grad_for_input)
     ### END YOUR SOLUTION
 
 
